@@ -118,6 +118,11 @@ func makeConfig(url string) kafka.ConfigMap {
 }
 
 func parseArgs() (url, topic string, requestCount uint64, err error) {
+	flag.StringVar(&url, "url", "", "URL to test")
+	flag.StringVar(&topic, "topic", "", "Topic to send in tests")
+	flag.Uint64Var(&requestCount, "requestCount", 100000, "Amount of requests to send during test")
+	flag.Parse()
+
 	if url = flag.Arg(0); len(url) == 0 {
 		err = ErrEmptyURL
 		return
@@ -128,8 +133,6 @@ func parseArgs() (url, topic string, requestCount uint64, err error) {
 		return
 	}
 
-	flag.Uint64Var(&requestCount, "requestCount", 100000, "Amount of requests to send during test")
-	flag.Parse()
 	return
 }
 
