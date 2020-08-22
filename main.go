@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	// ErrEmptyURL is returned when the url argument is empty
-	ErrEmptyURL = errors.Error("url cannot be empty")
+	// ErrEmptyHost is returned when the host argument is empty
+	ErrEmptyHost = errors.Error("host cannot be empty")
 	// ErrEmptyTopic is returned when the topic argument is empty
 	ErrEmptyTopic = errors.Error("topic cannot be empty")
 )
@@ -37,17 +37,20 @@ var (
 
 func main() {
 	var (
-		url          string
+		host         string
 		topic        string
 		requestCount uint64
+		concurrency  uint64
 		err          error
 	)
 
-	if url, topic, requestCount, err = parseArgs(); err != nil {
+	if host, topic, requestCount, concurrency, err = parseArgs(); err != nil {
 		handleError(err)
 	}
 
-	cfg := makeConfig(url)
+	out.Notificationf("Testing with host \"%s\" and topic of \"%s\"", host, topic)
+
+	cfg := makeConfig(host)
 	topicPartition = kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny}
 
 	var p *kafka.Producer
@@ -58,7 +61,7 @@ func main() {
 
 	go scanEvents(p)
 
-	q := queue.New(8, 256)
+	q := queue.New(int(concurrency), 256)
 
 	var wg sync.WaitGroup
 	wg.Add(int(requestCount))
@@ -66,12 +69,11 @@ func main() {
 		val := rand.Float64()
 		str := strconv.FormatFloat(val, 'f', 4, 64)
 		q.New(func() {
+			defer wg.Done()
 			if err := p.Produce(newMessage(str), nil); err != nil {
 				out.Errorf("error producing message: %v", err)
 				return
 			}
-
-			wg.Done()
 		})
 	}
 
@@ -109,26 +111,30 @@ func handleEvent(evt kafka.Event) {
 		return
 	}
 
-	successCount.Add(1)
+	successful := successCount.Add(1)
+	if successful%10000 == 0 {
+		out.Notificationf("Completed %d requests", successful)
+	}
 }
 
-func makeConfig(url string) kafka.ConfigMap {
-	endpoint := fmt.Sprintf("%s:%d", url, port)
+func makeConfig(host string) kafka.ConfigMap {
+	endpoint := fmt.Sprintf("%s:%d", host, port)
 	return kafka.ConfigMap{"bootstrap.servers": endpoint}
 }
 
-func parseArgs() (url, topic string, requestCount uint64, err error) {
-	flag.StringVar(&url, "url", "", "URL to test")
+func parseArgs() (host, topic string, requestCount, concurrency uint64, err error) {
+	flag.StringVar(&host, "host", "", "Host to test")
 	flag.StringVar(&topic, "topic", "", "Topic to send in tests")
 	flag.Uint64Var(&requestCount, "requestCount", 100000, "Amount of requests to send during test")
+	flag.Uint64Var(&requestCount, "concurrency", 8, "The number of requests to send concurrently")
 	flag.Parse()
 
-	if url = flag.Arg(0); len(url) == 0 {
-		err = ErrEmptyURL
+	if len(host) == 0 {
+		err = ErrEmptyHost
 		return
 	}
 
-	if topic = flag.Arg(0); len(topic) == 0 {
+	if len(topic) == 0 {
 		err = ErrEmptyTopic
 		return
 	}
